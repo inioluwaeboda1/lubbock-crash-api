@@ -1,0 +1,14 @@
+# Everything for local development: the API, the cleaning pipeline, tests and the EDA notebook.
+-r src/requirements.txt
+
+# local server
+uvicorn==0.54.0
+
+# data cleaning (pipeline/clean.py) and EDA
+pandas==3.1.0
+matplotlib==3.11.2
+jupyter
+
+# tests
+pytest==9.1.1
+httpx==0.28.1

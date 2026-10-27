@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lubbock District Injury Crashes</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --ink: #1d2433; --muted: #5d6779; --line: #e3e6eb;
+    --k: #8f1d21; --a: #e0602b; --b: #e9b23f; --c: #9fb0c4; --accent: #23518c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 20px 16px 40px; }
+  header h1 { margin: 0; font-size: 22px; }
+  header p { margin: 4px 0 0; color: var(--muted); }
+  header a { color: var(--accent); }
+
+  .filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin: 18px 0;
+             padding: 12px 14px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+  .filters label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+  select, button { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  .sev { display: flex; gap: 4px; }
+  .sev button { min-width: 34px; font-weight: 600; cursor: pointer; }
+  .sev button[aria-pressed="true"] { color: #fff; border-color: transparent; }
+  .sev button[data-code="K"][aria-pressed="true"] { background: var(--k); }
+  .sev button[data-code="A"][aria-pressed="true"] { background: var(--a); }
+  .sev button[data-code="B"][aria-pressed="true"] { background: var(--b); color: var(--ink); }
+  .sev button[data-code="C"][aria-pressed="true"] { background: var(--c); color: var(--ink); }
+  .reset { cursor: pointer; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+  .tile .label { font-size: 12px; color: var(--muted); }
+  .tile .value { font-size: 26px; font-weight: 650; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .tile .sub { font-size: 12px; color: var(--muted); }
+
+  .grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 12px; margin-top: 12px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; min-width: 0; }
+  .card h2 { font-size: 15px; margin: 0 0 2px; }
+  .card .hint { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+  #map { height: 430px; border-radius: 6px; }
+  .chart-box { position: relative; height: 300px; }
+  .chart-box.tall { height: 440px; }
+  .toggle { font-size: 12px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td, th { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: left; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .error { background: #fdecea; color: #8a1c1c; padding: 10px 12px; border-radius: 6px; margin-top: 12px; }
+  footer { margin-top: 24px; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Lubbock District Injury Crashes</h1>
+    <p id="asof">Loading…</p>
+  </header>
+
+  <div class="filters">
+    <label>County
+      <select id="county"><option value="">All counties</option></select>
+    </label>
+    <label>From
+      <select id="yearFrom"></select>
+    </label>
+    <label>To
+      <select id="yearTo"></select>
+    </label>
+    <label>Road class
+      <select id="roadClass"><option value="">All roads</option></select>
+    </label>
+    <label>Severity
+      <div class="sev" id="sev">
+        <button data-code="K" aria-pressed="true" title="Fatal">K</button>
+        <button data-code="A" aria-pressed="true" title="Suspected serious injury">A</button>
+        <button data-code="B" aria-pressed="false" title="Suspected minor injury">B</button>
+        <button data-code="C" aria-pressed="false" title="Possible injury">C</button>
+      </div>
+    </label>
+    <button class="reset" id="reset">Reset</button>
+  </div>
+
+  <div class="tiles">
+    <div class="tile"><div class="label">Crashes</div><div class="value" id="tCrashes">–</div><div class="sub" id="tCrashesSub"></div></div>
+    <div class="tile"><div class="label">Fatal crashes (K)</div><div class="value" id="tFatal">–</div><div class="sub" id="tDeaths"></div></div>
+    <div class="tile"><div class="label">Serious injury crashes (A)</div><div class="value" id="tSerious">–</div><div class="sub" id="tSeriousSub"></div></div>
+    <div class="tile"><div class="label">Involved a pedestrian or cyclist</div><div class="value" id="tVru">–</div><div class="sub" id="tVruSub"></div></div>
+  </div>
+
+  <div id="error" class="error" hidden></div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Where fatal and serious crashes happen</h2>
+      <p class="hint">Fatal (dark red) and serious injury (orange) crashes for the selected area and years. Click a point for details.</p>
+      <div id="map"></div>
+      <p class="hint" id="mapNote" style="margin-top:8px"></p>
+    </div>
+    <div class="card">
+      <h2>Crashes by year</h2>
+      <p class="hint">
+        <label class="toggle"><input type="checkbox" id="samePeriod" checked><span>Compare the same Jan 1 – <span id="cutoff">Oct 20</span> window each year</span></label>
+      </p>
+      <div class="chart-box tall"><canvas id="yearChart"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Top contributing factors</h2>
+      <p class="hint" id="factorHint">Share of crashes citing each factor. A crash can have more than one.</p>
+      <div class="chart-box"><canvas id="factorChart"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Time of day</h2>
+      <p class="hint">Crashes by the hour they happened.</p>
+      <div class="chart-box"><canvas id="hourChart"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Roads with the most fatal and serious crashes</h2>
+      <p class="hint">For the selected area and years, regardless of the severity buttons.</p>
+      <table><thead><tr><th>Road</th><th class="num">K + A crashes</th></tr></thead><tbody id="roads"></tbody></table>
+    </div>
+    <div class="card">
+      <h2>About this data</h2>
+      <ul id="notes" style="margin:0;padding-left:18px;color:var(--muted);font-size:13px"></ul>
+    </div>
+  </div>
+
+  <footer>
+    Built on the <a href="/docs">Crash API</a>. Data: TxDOT Crash Records Information System (CRIS).
+    Analysis and any conclusions here are my own and not TxDOT's.
+  </footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const COLORS = { K: "#8f1d21", A: "#e0602b", B: "#e9b23f", C: "#9fb0c4" };
+const LABELS = { K: "Fatal", A: "Serious injury", B: "Minor injury", C: "Possible injury" };
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => n.toLocaleString("en-US");
+const esc = (s) => String(s).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
+let meta, map, pointsLayer, charts = {};
+
+// --- talking to the API ----------------------------------------------------
+
+function filterParams({ includeSeverity = true } = {}) {
+  const p = new URLSearchParams();
+  if ($("county").value) p.set("county", $("county").value);
+  if ($("roadClass").value) p.set("road_class", $("roadClass").value);
+  p.set("year_from", $("yearFrom").value);
+  p.set("year_to", $("yearTo").value);
+  const sev = selectedSeverity();
+  if (includeSeverity && sev.length && sev.length < 4) p.set("severity", sev.join(""));
+  return p;
+}
+
+async function api(path, params) {
+  const res = await fetch(`/api/${path}?${params}`);
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.detail?.message || res.statusText);
+  return body;
+}
+
+function selectedSeverity() {
+  return [...document.querySelectorAll("#sev button")]
+    .filter((b) => b.getAttribute("aria-pressed") === "true")
+    .map((b) => b.dataset.code);
+}
+
+// --- setup -------------------------------------------------------------------
+
+async function init() {
+  meta = await (await fetch("/api/meta")).json();
+  $("asof").innerHTML =
+    `TxDOT CRIS data as of ${meta.data_as_of}. Injury crashes only, ${meta.first_crash_date} to ${meta.latest_crash_date}. ` +
+    `<a href="/docs">API docs</a>`;
+  $("cutoff").textContent = new Date(meta.latest_crash_date + "T12:00:00")
+    .toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  $("notes").innerHTML = meta.notes.concat([
+    `${meta.latest_crash_date.slice(0, 4)} is a partial year, and recent months can still grow as reports come in.`,
+    "About 3% of crashes have no usable coordinates, so they're missing from the map but counted everywhere else.",
+  ]).map((n) => `<li>${n}</li>`).join("");
+
+  for (const c of meta.valid_filters.county) $("county").add(new Option(`${c.name} (${fmt(c.crashes)})`, c.name));
+  for (const r of meta.valid_filters.road_class) $("roadClass").add(new Option(r, r));
+  for (const y of meta.valid_filters.year) { $("yearFrom").add(new Option(y, y)); $("yearTo").add(new Option(y, y)); }
+  $("yearFrom").value = meta.valid_filters.year[0];
+  $("yearTo").value = meta.valid_filters.year.at(-1);
+
+  map = L.map("map", { scrollWheelZoom: false }).setView([33.58, -101.86], 9);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 18, attribution: "&copy; OpenStreetMap contributors",
+  }).addTo(map);
+  pointsLayer = L.layerGroup().addTo(map);
+
+  for (const el of ["county", "yearFrom", "yearTo", "roadClass", "samePeriod"]) $(el).addEventListener("change", refresh);
+  document.querySelectorAll("#sev button").forEach((b) => b.addEventListener("click", () => {
+    const on = b.getAttribute("aria-pressed") === "true";
+    if (on && selectedSeverity().length === 1) return; // keep at least one selected
+    b.setAttribute("aria-pressed", String(!on));
+    refresh();
+  }));
+  $("reset").addEventListener("click", () => {
+    $("county").value = ""; $("roadClass").value = "";
+    $("yearFrom").value = meta.valid_filters.year[0]; $("yearTo").value = meta.valid_filters.year.at(-1);
+    document.querySelectorAll("#sev button").forEach((b) => b.setAttribute("aria-pressed", String("KA".includes(b.dataset.code))));
+    $("samePeriod").checked = true;
+    refresh();
+  });
+
+  refresh();
+}
+
+// --- drawing ---------------------------------------------------------------
+
+async function refresh() {
+  $("error").hidden = true;
+  if (+$("yearFrom").value > +$("yearTo").value) $("yearTo").value = $("yearFrom").value;
+  try {
+    const withSev = filterParams();
+    const noSev = filterParams({ includeSeverity: false });
+    const ka = new URLSearchParams(noSev); ka.set("severity", "KA");
+
+    const yearParams = new URLSearchParams(withSev);
+    yearParams.set("by", "year");
+    if ($("samePeriod").checked) yearParams.set("same_period", "true");
+    const hourParams = new URLSearchParams(withSev); hourParams.set("by", "hour");
+    const mapParams = new URLSearchParams(ka); mapParams.set("has_location", "true"); mapParams.set("limit", "5000");
+    const factorParams = new URLSearchParams(withSev); factorParams.set("n", "8");
+
+    const [summary, kaSummary, years, hours, factors, points] = await Promise.all([
+      api("summary", withSev), api("summary", ka), api("trends", yearParams),
+      api("trends", hourParams), api("factors", factorParams), api("crashes", mapParams),
+    ]);
+    drawTiles(summary.data);
+    drawYears(years.data);
+    drawHours(hours.data);
+    drawFactors(factors);
+    drawMap(points);
+    drawRoads(kaSummary.data.top_roads_for_ka_crashes);
+  } catch (err) {
+    $("error").textContent = "Couldn't load data: " + err.message;
+    $("error").hidden = false;
+  }
+}
+
+function drawTiles(s) {
+  $("tCrashes").textContent = fmt(s.crashes);
+  $("tCrashesSub").textContent = `Severity: ${selectedSeverity().join(", ")}`;
+  $("tFatal").textContent = fmt(s.fatal_crashes);
+  $("tDeaths").textContent = `${fmt(s.deaths)} people killed`;
+  $("tSerious").textContent = fmt(s.serious_injury_crashes);
+  $("tSeriousSub").textContent = `${fmt(s.serious_injuries)} people seriously injured`;
+  const vru = s.pedestrian_crashes + s.cyclist_crashes;
+  $("tVru").textContent = fmt(vru);
+  $("tVruSub").textContent = `${fmt(s.pedestrian_crashes)} pedestrian, ${fmt(s.cyclist_crashes)} cyclist, ${fmt(s.motorcycle_crashes)} motorcycle`;
+}
+
+function chart(id, config) {
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart($(id), config);
+}
+
+const baseOptions = {
+  responsive: true, maintainAspectRatio: false, animation: false,
+  plugins: { legend: { position: "bottom", labels: { boxWidth: 12 } } },
+};
+
+function severityDatasets(rows) {
+  return selectedSeverity().map((code) => ({
+    label: LABELS[code], data: rows.map((r) => r[code]), backgroundColor: COLORS[code], stack: "s",
+  }));
+}
+
+function drawYears(rows) {
+  const partialYear = meta.latest_crash_date.slice(0, 4);
+  const same = $("samePeriod").checked;
+  chart("yearChart", {
+    type: "bar",
+    data: { labels: rows.map((r) => (!same && String(r.period) === partialYear ? `${r.period}*` : r.period)), datasets: severityDatasets(rows) },
+    options: { ...baseOptions, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } },
+      plugins: { ...baseOptions.plugins,
+        subtitle: { display: !same, text: `* ${partialYear} is a partial year`, position: "bottom" } } },
+  });
+}
+
+function drawHours(rows) {
+  chart("hourChart", {
+    type: "bar",
+    data: { labels: rows.map((r) => String(r.period).padStart(2, "0")), datasets: severityDatasets(rows) },
+    options: { ...baseOptions, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } },
+  });
+}
+
+function drawFactors(res) {
+  const rows = res.data;
+  const nice = (f) => f.charAt(0) + f.slice(1).toLowerCase();
+  chart("factorChart", {
+    type: "bar",
+    data: { labels: rows.map((r) => nice(r.factor)),
+            datasets: [{ label: "Share of crashes", data: rows.map((r) => r.share_of_crashes * 100), backgroundColor: "#23518c" }] },
+    options: { ...baseOptions, indexAxis: "y",
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: (ctx) => `${ctx.raw.toFixed(1)}% (${fmt(rows[ctx.dataIndex].crashes)} crashes)` } } },
+      scales: { x: { ticks: { callback: (v) => v + "%" } }, y: { ticks: { autoSkip: false, font: { size: 11 } } } } },
+  });
+  const other = Object.values(res.unspecified_excluded || {})[0] || 0;
+  $("factorHint").textContent =
+    `Share of the ${fmt(res.crash_count)} selected crashes citing each factor. A crash can cite several.` +
+    (other ? ` "Other (see narrative)" was cited in ${fmt(other)} and is left out of the ranking.` : "");
+}
+
+function drawMap(res) {
+  pointsLayer.clearLayers();
+  const bounds = [];
+  // Draw serious injuries first so fatal crashes sit on top.
+  const rows = [...res.data].sort((a, b) => (a.severity === "K") - (b.severity === "K"));
+  for (const c of rows) {
+    const marker = L.circleMarker([c.lat, c.lon], {
+      radius: c.severity === "K" ? 4 : 3, color: COLORS[c.severity], weight: 1,
+      fillColor: COLORS[c.severity], fillOpacity: 0.75,
+    });
+    marker.bindPopup(
+      `<strong>${c.severity === "K" ? "Fatal" : "Serious injury"}</strong> · ${c.date}<br>` +
+      `${esc(c.road || "Unknown road")}, ${esc(c.county)} County<br>` +
+      `${c.factors.length ? esc(c.factors.join("; ").toLowerCase()) : "no factor recorded"}`
+    );
+    pointsLayer.addLayer(marker);
+    bounds.push([c.lat, c.lon]);
+  }
+  if (bounds.length) map.fitBounds(bounds, { padding: [20, 20], maxZoom: 13 });
+  const missing = res.crash_count === res.data.length ? "" : ` Showing the newest ${fmt(res.data.length)} of ${fmt(res.crash_count)}.`;
+  $("mapNote").textContent = `${fmt(res.data.length)} crashes with coordinates.${missing}`;
+}
+
+function drawRoads(roads) {
+  $("roads").innerHTML = roads.length
+    ? roads.map((r) => `<tr><td>${esc(r.road)}</td><td class="num">${fmt(r.crashes)}</td></tr>`).join("")
+    : `<tr><td colspan="2">No fatal or serious crashes for this selection.</td></tr>`;
+}
+
+init().catch((err) => { $("error").textContent = "Couldn't reach the API: " + err.message; $("error").hidden = false; });
+</script>
+</body>
+</html>

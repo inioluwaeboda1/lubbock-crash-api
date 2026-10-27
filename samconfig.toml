@@ -1,0 +1,14 @@
+# Defaults for `sam deploy` so it's one command after the first run.
+version = 0.1
+
+[default.global.parameters]
+stack_name = "lubbock-crash-api"
+region = "us-east-1"
+
+[default.build.parameters]
+cached = true
+
+[default.deploy.parameters]
+capabilities = "CAPABILITY_IAM"
+resolve_s3 = true
+confirm_changeset = false

@@ -1,0 +1,67 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Lubbock district crash API. One Lambda function (FastAPI + Mangum) with the
+  cleaned crash data bundled in, exposed through a Lambda function URL.
+
+Parameters:
+  AlertEmail:
+    Type: String
+    Default: ""
+    Description: Optional. If set, creates an AWS Budget that emails you as soon as the account spends anything.
+
+Conditions:
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
+
+Resources:
+  CrashApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Lubbock district crash statistics API and dashboard
+      CodeUri: src/
+      Handler: crash_api.main.handler
+      Runtime: python3.13
+      Architectures: [arm64]       # Graviton: cheaper per ms than x86, and plenty fast for this
+      MemorySize: 512              # more memory also means more CPU; 512 keeps cold starts short
+      Timeout: 15
+      FunctionUrlConfig:
+        AuthType: NONE             # public, read-only data; no login needed
+        # CORS is deliberately NOT set here. FastAPI already sends the CORS
+        # headers, and setting it in both places duplicates them.
+
+  # Lambda would create this log group on its own, but with logs kept forever.
+  # Two weeks is plenty for a demo and keeps CloudWatch storage at ~zero.
+  CrashApiLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${CrashApiFunction}
+      RetentionInDays: 14
+
+  # Early warning if anything ever starts costing money.
+  CostAlert:
+    Type: AWS::Budgets::Budget
+    Condition: HasAlertEmail
+    Properties:
+      Budget:
+        BudgetName: !Sub ${AWS::StackName}-any-spend
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: 1
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 1            # 1% of $1, i.e. the first cent
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlertEmail
+
+Outputs:
+  ApiUrl:
+    Description: Public URL (dashboard at /, API docs at /docs)
+    Value: !GetAtt CrashApiFunctionUrl.FunctionUrl
+  FunctionName:
+    Value: !Ref CrashApiFunction

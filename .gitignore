@@ -1,0 +1,12 @@
+# Raw CRIS export: 77 MB and full of person-level details (age, ZIP, etc.).
+# It isn't mine to republish, so it stays out of the repo. See README.
+data/raw/*
+!data/raw/README.md
+
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+.aws-sam/
+.DS_Store

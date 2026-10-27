@@ -1,0 +1,4 @@
+# What the Lambda function needs at runtime. Kept small on purpose:
+# pandas is only used offline in pipeline/clean.py, never in the deployed code.
+fastapi==0.162.0
+mangum==0.22.0
